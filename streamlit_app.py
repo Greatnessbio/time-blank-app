@@ -1,9 +1,10 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 
 def main():
-    st.title("Interactive CSV Dashboard")
+    st.title("Interactive CSV Timeline Dashboard")
 
     # File uploader
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -16,34 +17,66 @@ def main():
         st.subheader("Raw Data")
         st.write(df)
 
-        # Select columns for visualization
-        st.subheader("Select Columns for Visualization")
+        # Identify date columns
+        date_columns = df.select_dtypes(include=['datetime64']).columns.tolist()
+        if not date_columns:
+            # If no datetime columns found, try to convert object columns to datetime
+            for col in df.select_dtypes(include=['object']):
+                try:
+                    df[col] = pd.to_datetime(df[col])
+                    date_columns.append(col)
+                except:
+                    pass
+
+        if not date_columns:
+            st.error("No date columns found in the CSV. Please ensure your CSV contains at least one column with dates.")
+            return
+
+        # Select date column for timeline
+        date_column = st.selectbox("Select Date Column", options=date_columns)
+
+        # Select value column for timeline
         numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+        value_column = st.selectbox("Select Value Column", options=numeric_columns)
+
+        # Select category column for color (optional)
         categorical_columns = df.select_dtypes(include=['object']).columns.tolist()
+        color_column = st.selectbox("Select Category Column for Color (optional)", options=['None'] + categorical_columns)
 
-        x_axis = st.selectbox("Select X-axis", options=df.columns)
-        y_axis = st.selectbox("Select Y-axis", options=numeric_columns)
-        color_column = st.selectbox("Select Color Column (optional)", options=['None'] + categorical_columns)
+        # Create interactive timeline
+        st.subheader("Interactive Timeline")
 
-        # Create layers of visualizations
-        st.subheader("Data Visualization")
+        fig = px.line(df, x=date_column, y=value_column, color=color_column if color_column != 'None' else None,
+                      title=f"Timeline: {value_column} over {date_column}")
+        
+        # Add range slider
+        fig.update_xaxes(rangeslider_visible=True)
 
-        # Scatter plot
-        fig_scatter = px.scatter(df, x=x_axis, y=y_axis, color=color_column if color_column != 'None' else None,
-                                 title=f"Scatter Plot: {x_axis} vs {y_axis}")
-        st.plotly_chart(fig_scatter)
+        # Add buttons for time range selection
+        fig.update_layout(
+            updatemenus=[
+                dict(
+                    type="buttons",
+                    direction="right",
+                    x=0.7,
+                    y=1.2,
+                    showactive=True,
+                    buttons=list([
+                        dict(label="All",
+                             method="relayout",
+                             args=[{"xaxis.range": [df[date_column].min(), df[date_column].max()]}]),
+                        dict(label="Last Month",
+                             method="relayout",
+                             args=[{"xaxis.range": [df[date_column].max() - pd.Timedelta(days=30), df[date_column].max()]}]),
+                        dict(label="Last Week",
+                             method="relayout",
+                             args=[{"xaxis.range": [df[date_column].max() - pd.Timedelta(days=7), df[date_column].max()]}]),
+                    ]),
+                )
+            ]
+        )
 
-        # Bar chart
-        if x_axis in categorical_columns:
-            fig_bar = px.bar(df, x=x_axis, y=y_axis, color=color_column if color_column != 'None' else None,
-                             title=f"Bar Chart: {x_axis} vs {y_axis}")
-            st.plotly_chart(fig_bar)
-
-        # Line chart
-        if x_axis in numeric_columns:
-            fig_line = px.line(df, x=x_axis, y=y_axis, color=color_column if color_column != 'None' else None,
-                               title=f"Line Chart: {x_axis} vs {y_axis}")
-            st.plotly_chart(fig_line)
+        st.plotly_chart(fig)
 
         # Data filtering
         st.subheader("Data Filtering")
@@ -53,8 +86,15 @@ def main():
 
         filtered_df = df[df[filter_column].isin(selected_values)]
 
-        st.subheader("Filtered Data")
-        st.write(filtered_df)
+        # Create filtered timeline
+        st.subheader("Filtered Timeline")
+
+        fig_filtered = px.line(filtered_df, x=date_column, y=value_column, color=color_column if color_column != 'None' else None,
+                               title=f"Filtered Timeline: {value_column} over {date_column}")
+        
+        fig_filtered.update_xaxes(rangeslider_visible=True)
+
+        st.plotly_chart(fig_filtered)
 
         # Summary statistics
         st.subheader("Summary Statistics")
