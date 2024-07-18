@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
+import plotly.figure_factory as ff
 import plotly.express as px
-import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
 def main():
-    st.title("Interactive CSV Timeline Dashboard")
+    st.title("Interactive Project Timeline")
 
     # File uploader
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -17,37 +18,27 @@ def main():
         st.subheader("Raw Data")
         st.write(df)
 
-        # Identify date columns
-        date_columns = df.select_dtypes(include=['datetime64']).columns.tolist()
-        if not date_columns:
-            # If no datetime columns found, try to convert object columns to datetime
-            for col in df.select_dtypes(include=['object']):
-                try:
-                    df[col] = pd.to_datetime(df[col])
-                    date_columns.append(col)
-                except:
-                    pass
-
-        if not date_columns:
-            st.error("No date columns found in the CSV. Please ensure your CSV contains at least one column with dates.")
+        # Check if required columns exist
+        required_columns = ['Task', 'Start', 'Finish']
+        if not all(col in df.columns for col in required_columns):
+            st.error("The CSV file must contain 'Task', 'Start', and 'Finish' columns.")
             return
 
-        # Select date column for timeline
-        date_column = st.selectbox("Select Date Column", options=date_columns)
+        # Convert 'Start' and 'Finish' columns to datetime
+        df['Start'] = pd.to_datetime(df['Start'])
+        df['Finish'] = pd.to_datetime(df['Finish'])
 
-        # Select value column for timeline
-        numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
-        value_column = st.selectbox("Select Value Column", options=numeric_columns)
+        # Optional: Resource column
+        resource_column = None
+        if 'Resource' in df.columns:
+            resource_column = 'Resource'
 
-        # Select category column for color (optional)
-        categorical_columns = df.select_dtypes(include=['object']).columns.tolist()
-        color_column = st.selectbox("Select Category Column for Color (optional)", options=['None'] + categorical_columns)
+        # Create Gantt chart
+        st.subheader("Project Timeline (Gantt Chart)")
 
-        # Create interactive timeline
-        st.subheader("Interactive Timeline")
-
-        fig = px.line(df, x=date_column, y=value_column, color=color_column if color_column != 'None' else None,
-                      title=f"Timeline: {value_column} over {date_column}")
+        fig = px.timeline(df, x_start="Start", x_end="Finish", y="Task", color=resource_column,
+                          title="Project Timeline")
+        fig.update_yaxes(autorange="reversed")  # Reverse the order of tasks
         
         # Add range slider
         fig.update_xaxes(rangeslider_visible=True)
@@ -64,13 +55,13 @@ def main():
                     buttons=list([
                         dict(label="All",
                              method="relayout",
-                             args=[{"xaxis.range": [df[date_column].min(), df[date_column].max()]}]),
-                        dict(label="Last Month",
+                             args=[{"xaxis.range": [df['Start'].min(), df['Finish'].max()]}]),
+                        dict(label="Next Month",
                              method="relayout",
-                             args=[{"xaxis.range": [df[date_column].max() - pd.Timedelta(days=30), df[date_column].max()]}]),
-                        dict(label="Last Week",
+                             args=[{"xaxis.range": [datetime.now(), datetime.now() + timedelta(days=30)]}]),
+                        dict(label="Next Week",
                              method="relayout",
-                             args=[{"xaxis.range": [df[date_column].max() - pd.Timedelta(days=7), df[date_column].max()]}]),
+                             args=[{"xaxis.range": [datetime.now(), datetime.now() + timedelta(days=7)]}]),
                     ]),
                 )
             ]
@@ -78,27 +69,32 @@ def main():
 
         st.plotly_chart(fig)
 
-        # Data filtering
-        st.subheader("Data Filtering")
-        filter_column = st.selectbox("Select column to filter", options=df.columns)
-        unique_values = df[filter_column].unique().tolist()
-        selected_values = st.multiselect(f"Select values for {filter_column}", options=unique_values, default=unique_values)
+        # Task filtering
+        st.subheader("Task Filtering")
+        if resource_column:
+            resources = df[resource_column].unique().tolist()
+            selected_resources = st.multiselect("Filter by Resource", options=resources, default=resources)
+            filtered_df = df[df[resource_column].isin(selected_resources)]
+        else:
+            filtered_df = df
 
-        filtered_df = df[df[filter_column].isin(selected_values)]
+        # Create filtered Gantt chart
+        st.subheader("Filtered Project Timeline")
 
-        # Create filtered timeline
-        st.subheader("Filtered Timeline")
-
-        fig_filtered = px.line(filtered_df, x=date_column, y=value_column, color=color_column if color_column != 'None' else None,
-                               title=f"Filtered Timeline: {value_column} over {date_column}")
-        
+        fig_filtered = px.timeline(filtered_df, x_start="Start", x_end="Finish", y="Task", color=resource_column,
+                                   title="Filtered Project Timeline")
+        fig_filtered.update_yaxes(autorange="reversed")
         fig_filtered.update_xaxes(rangeslider_visible=True)
 
         st.plotly_chart(fig_filtered)
 
         # Summary statistics
-        st.subheader("Summary Statistics")
-        st.write(filtered_df.describe())
+        st.subheader("Project Summary")
+        st.write(f"Total number of tasks: {len(filtered_df)}")
+        st.write(f"Project start date: {filtered_df['Start'].min().date()}")
+        st.write(f"Project end date: {filtered_df['Finish'].max().date()}")
+        if resource_column:
+            st.write(f"Number of resources: {filtered_df[resource_column].nunique()}")
 
 if __name__ == "__main__":
     main()
