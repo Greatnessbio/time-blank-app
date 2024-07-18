@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import plotly.figure_factory as ff
 import plotly.express as px
 from datetime import datetime, timedelta
 
 def main():
-    st.title("Interactive Project Timeline")
+    st.title("Custom Project Timeline")
 
     # File uploader
     uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
@@ -19,24 +18,22 @@ def main():
         st.write(df)
 
         # Check if required columns exist
-        required_columns = ['Task', 'Start', 'Finish']
+        required_columns = ['Name', 'Start Date', 'Due Date']
         if not all(col in df.columns for col in required_columns):
-            st.error("The CSV file must contain 'Task', 'Start', and 'Finish' columns.")
+            st.error("The CSV file must contain 'Name', 'Start Date', and 'Due Date' columns.")
             return
 
-        # Convert 'Start' and 'Finish' columns to datetime
-        df['Start'] = pd.to_datetime(df['Start'])
-        df['Finish'] = pd.to_datetime(df['Finish'])
-
-        # Optional: Resource column
-        resource_column = None
-        if 'Resource' in df.columns:
-            resource_column = 'Resource'
+        # Convert date columns to datetime
+        date_columns = ['Start Date', 'Due Date', 'Created At', 'Completed At', 'Last Modified']
+        for col in date_columns:
+            if col in df.columns:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
 
         # Create Gantt chart
         st.subheader("Project Timeline (Gantt Chart)")
 
-        fig = px.timeline(df, x_start="Start", x_end="Finish", y="Task", color=resource_column,
+        fig = px.timeline(df, x_start="Start Date", x_end="Due Date", y="Name", color="Assignee",
+                          hover_data=["Task ID", "Projects", "Estimated Hours", "Deliverable Status"],
                           title="Project Timeline")
         fig.update_yaxes(autorange="reversed")  # Reverse the order of tasks
         
@@ -55,7 +52,7 @@ def main():
                     buttons=list([
                         dict(label="All",
                              method="relayout",
-                             args=[{"xaxis.range": [df['Start'].min(), df['Finish'].max()]}]),
+                             args=[{"xaxis.range": [df['Start Date'].min(), df['Due Date'].max()]}]),
                         dict(label="Next Month",
                              method="relayout",
                              args=[{"xaxis.range": [datetime.now(), datetime.now() + timedelta(days=30)]}]),
@@ -71,17 +68,31 @@ def main():
 
         # Task filtering
         st.subheader("Task Filtering")
-        if resource_column:
-            resources = df[resource_column].unique().tolist()
-            selected_resources = st.multiselect("Filter by Resource", options=resources, default=resources)
-            filtered_df = df[df[resource_column].isin(selected_resources)]
-        else:
-            filtered_df = df
+        
+        # Filter by Assignee
+        assignees = df['Assignee'].dropna().unique().tolist()
+        selected_assignees = st.multiselect("Filter by Assignee", options=assignees, default=assignees)
+        
+        # Filter by Project
+        projects = df['Projects'].dropna().unique().tolist()
+        selected_projects = st.multiselect("Filter by Project", options=projects, default=projects)
+        
+        # Filter by Deliverable Status
+        statuses = df['Deliverable Status'].dropna().unique().tolist()
+        selected_statuses = st.multiselect("Filter by Deliverable Status", options=statuses, default=statuses)
+
+        # Apply filters
+        filtered_df = df[
+            (df['Assignee'].isin(selected_assignees)) &
+            (df['Projects'].isin(selected_projects)) &
+            (df['Deliverable Status'].isin(selected_statuses))
+        ]
 
         # Create filtered Gantt chart
         st.subheader("Filtered Project Timeline")
 
-        fig_filtered = px.timeline(filtered_df, x_start="Start", x_end="Finish", y="Task", color=resource_column,
+        fig_filtered = px.timeline(filtered_df, x_start="Start Date", x_end="Due Date", y="Name", color="Assignee",
+                                   hover_data=["Task ID", "Projects", "Estimated Hours", "Deliverable Status"],
                                    title="Filtered Project Timeline")
         fig_filtered.update_yaxes(autorange="reversed")
         fig_filtered.update_xaxes(rangeslider_visible=True)
@@ -91,10 +102,18 @@ def main():
         # Summary statistics
         st.subheader("Project Summary")
         st.write(f"Total number of tasks: {len(filtered_df)}")
-        st.write(f"Project start date: {filtered_df['Start'].min().date()}")
-        st.write(f"Project end date: {filtered_df['Finish'].max().date()}")
-        if resource_column:
-            st.write(f"Number of resources: {filtered_df[resource_column].nunique()}")
+        st.write(f"Project start date: {filtered_df['Start Date'].min().date()}")
+        st.write(f"Project end date: {filtered_df['Due Date'].max().date()}")
+        st.write(f"Number of assignees: {filtered_df['Assignee'].nunique()}")
+        st.write(f"Total estimated hours: {filtered_df['Estimated Hours'].sum():.2f}")
+        
+        # Overdue tasks
+        overdue_tasks = filtered_df[filtered_df['Overdue'] == True]
+        st.write(f"Number of overdue tasks: {len(overdue_tasks)}")
+
+        # Task completion status
+        completed_tasks = filtered_df[filtered_df['Completed At'].notna()]
+        st.write(f"Completed tasks: {len(completed_tasks)} ({len(completed_tasks)/len(filtered_df)*100:.2f}%)")
 
 if __name__ == "__main__":
     main()
